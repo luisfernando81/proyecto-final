@@ -1,0 +1,98 @@
+#include <Stepper.h>
+#include <DHT.h>
+
+const int stepsPerRevolution = 48;  // Cambia este valor por el número de pasos de tu motor
+
+// Inicializa la librería 'stepper' en los pines 8 a 11
+Stepper myStepper(stepsPerRevolution, 8, 9, 10, 11);
+int motorSpeed = 0; // Velocidad actual del motor
+
+#define DHTPIN 2    // Pin de datos del sensor DHT11 (puedes cambiar esto)
+#define DHTTYPE DHT11   // Tipo de sensor DHT (DHT11 o DHT22)
+DHT dht(DHTPIN, DHTTYPE);
+
+const int sensorPin = A0; // Pin analógico al que está conectado el sensor ACS712
+const float factorConversion = 5.0 / 1024.0 / 0.185; // Factor de conversión para convertir la lectura analógica a corriente (Amps)
+
+// Pines para el semáforo LED
+const int redPin = 3;
+const int yellowPin = 4;
+const int greenPin = 5;
+
+void setup() {
+  Serial.begin(115200); // Inicia la comunicación serie
+  myStepper.setSpeed(360); // Establece una velocidad constante (puedes ajustarla según tus necesidades)
+  myStepper.step(stepsPerRevolution); // Gira el motor en una dirección al inicio
+  dht.begin();
+
+  // Configura los pines del semáforo LED
+  pinMode(redPin, OUTPUT);
+  pinMode(yellowPin, OUTPUT);
+  pinMode(greenPin, OUTPUT);
+}
+
+void loop() {
+  // Control del motor a pasos
+  if (Serial.available() > 0) {
+    // Leer la velocidad enviada desde la interfaz
+    motorSpeed = Serial.parseInt();
+
+    // Asegurarse de que la velocidad esté en el rango -255 a 255
+    motorSpeed = constrain(motorSpeed, -255, 255);
+
+    // Configura la velocidad del motor a pasos
+    int stepsPerSecond = map(abs(motorSpeed), 0, 255, 0, 360); // Mapea la velocidad de 0-255 a pasos por segundo
+
+    myStepper.setSpeed(stepsPerSecond);
+
+    // Gira el motor en la dirección indicada por la velocidad
+    if (motorSpeed > 0) {
+      myStepper.step(stepsPerRevolution); // Gira en una dirección
+      // Enciende el semáforo verde cuando el motor está encendido
+      digitalWrite(greenPin, HIGH);
+      digitalWrite(redPin, LOW);
+      digitalWrite(yellowPin, LOW);
+    } else if (motorSpeed < 0) {
+      myStepper.step(-stepsPerRevolution); // Gira en la dirección opuesta (sentido contrario)
+      // Enciende el semáforo amarillo cuando el motor está apagado pero los sensores funcionan
+      digitalWrite(yellowPin, HIGH);
+      digitalWrite(redPin, LOW);
+      digitalWrite(greenPin, LOW);
+    }
+  } else {
+    // Si no hay comandos desde la interfaz, apaga todos los LEDs
+    digitalWrite(redPin, LOW);
+    digitalWrite(yellowPin, LOW);
+    digitalWrite(greenPin, LOW);
+  }
+
+  // Lectura del sensor DHT11 cada 2 segundos
+  delay(2000);
+  float humidity = dht.readHumidity();
+  float temperature = dht.readTemperature();
+
+  if (isnan(humidity) || isnan(temperature)) {
+    Serial.println("Error al leer el sensor DHT11");
+    // Enciende el semáforo rojo cuando hay un error en el sensor DHT11
+    digitalWrite(redPin, HIGH);
+    digitalWrite(yellowPin, LOW);
+    digitalWrite(greenPin, LOW);
+    return;
+  }
+
+  Serial.print("Humedad: ");
+  Serial.print(humidity);
+  Serial.print("%\t");
+  Serial.print("Temperatura: ");
+  Serial.print(temperature);
+  Serial.println("°C");
+
+  // Lectura del sensor ACS712
+  int sensorValue = analogRead(sensorPin);
+  float current = sensorValue * factorConversion;
+
+  // Imprime la corriente en el monitor serial
+  Serial.print("Corriente: ");
+  Serial.print(current, 2); // Imprime el valor con 2 decimales
+  Serial.println(" Amperios");
+}
